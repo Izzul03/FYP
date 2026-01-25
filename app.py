@@ -730,6 +730,13 @@ if tab_selection == "📊 Summary & Overview":
 
             map_df["highest_crop"] = map_df["highest_crop"].fillna("No data")
             map_df["lowest_crop"] = map_df["lowest_crop"].fillna("No data")
+            
+            # Convert numpy types to Python native types for JSON serialization
+            map_df = map_df.astype({
+                col: float if map_df[col].dtype in ['float64', 'float32'] else int 
+                if map_df[col].dtype in ['int64', 'int32'] else str
+                for col in map_df.select_dtypes(include=['number']).columns
+            })
 
             # BUBBLE LAYER
             bubble_layer = pdk.Layer(
