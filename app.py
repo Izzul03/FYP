@@ -104,11 +104,9 @@ def load_data() -> pd.DataFrame:
     try:
         # Try multiple possible file locations
         possible_paths = [
-            "/Users/izzulfidaey/Desktop/FYP/crops_state.csv",
             "crops_state.csv",
             "./crops_state.csv",
-            "../crops_state.csv",
-            "./data/crops_state.csv"
+            "/workspaces/FYP/crops_state.csv"
         ]
 
         file_path = None
