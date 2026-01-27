@@ -1419,144 +1419,122 @@ else:
                       delta_color="inverse" if simple_change_pct < 0 else "normal")
 
     # -------------------------------------------------------
-    # MODEL 2: TIME-SERIES FORECASTING (PROPHET)
+    # MODEL 2: TIME-SERIES FORECASTING (LINEAR REGRESSION)
     # -------------------------------------------------------
-    from prophet import Prophet
-    import logging
-
-    logging.getLogger('cmdstanpy').setLevel(logging.WARNING)  # Silence prophet logs
+    from sklearn.linear_model import LinearRegression
+    import numpy as np
 
     st.markdown("---")
-    st.markdown('<div class="sub-header">Time-Series Simulation</div>', unsafe_allow_html=True)
-    st.caption("This model projects the historical trend forward while accounting for your simulated climate changes.")
+    st.markdown('<div class="sub-header">Time-Series Simulation (Linear Regression)</div>', unsafe_allow_html=True)
+    st.caption(
+        "This model projects the historical trend forward using Linear Regression, adjusting for your simulated climate scenarios.")
 
-    prophet_df = sim_data[['year', 'production', 'temperature', 'humidity']].dropna()
-    prophet_df['ds'] = pd.to_datetime(prophet_df['year'], format='%Y')
-    prophet_df = prophet_df.rename(columns={'production': 'y'})
+    # 1. Prepare Data
+    # We need numerical year for regression
+    reg_df = sim_data[['year', 'production', 'temperature', 'humidity']].dropna()
 
-    if len(prophet_df) > 3:
-        # Train Model
-        m = Prophet(yearly_seasonality=True)
-        m.add_regressor('temperature')
-        m.add_regressor('humidity')
+    if len(reg_df) > 3:
 
-        with st.spinner('Calculating Forecast...'):
-            m.fit(prophet_df)
+        # Define Features (X) and Target (y)
+        # We use Year (for trend), Temperature, and Humidity
+        X = reg_df[['year', 'temperature', 'humidity']]
+        y = reg_df['production']
 
-            # Create Future Dataframe (5 Years)
-            future = m.make_future_dataframe(periods=5, freq='Y')
+        # 2. Train Model
+        model = LinearRegression()
+        model.fit(X, y)
 
-            # Setup Regressors
-            base_temp = prophet_df['temperature'].mean()
-            base_hum = prophet_df['humidity'].mean()
+        # Calculate Accuracy (R-Squared)
+        r2_score = model.score(X, y)
 
-            # Initialize future with baseline
-            future['temperature'] = base_temp
-            future['humidity'] = base_hum
+        # 3. Create Future Scenarios (Next 5 Years)
+        last_year = int(reg_df['year'].max())
+        future_years = [last_year + i for i in range(1, 6)]
 
-            # Apply Sliders to Future Rows Only
-            future_mask = future['ds'] > prophet_df['ds'].max()
-            future.loc[future_mask, 'temperature'] = base_temp + temp_increase
-            future.loc[future_mask, 'humidity'] = base_hum + hum_change
+        # Get Baseline Climate (avg of last 3 years to represent 'current' state)
+        base_temp = reg_df.tail(3)['temperature'].mean()
+        base_hum = reg_df.tail(3)['humidity'].mean()
 
-            # Map historical values back
-            for i, row in prophet_df.iterrows():
-                mask = future['ds'] == row['ds']
-                future.loc[mask, 'temperature'] = row['temperature']
-                future.loc[mask, 'humidity'] = row['humidity']
+        # Apply Simulation Sliders (temp_increase, hum_change from your sliders)
+        sim_temp = base_temp + temp_increase
+        sim_hum = base_hum + hum_change
 
-            # Predict
-            forecast = m.predict(future)
-            forecast['year'] = forecast['ds'].dt.year
+        # Build Future Data for Prediction
+        future_X = pd.DataFrame({
+            'year': future_years,
+            'temperature': [sim_temp] * 5,
+            'humidity': [sim_hum] * 5
+        })
 
-            # Visualization Data Prep (Connected Lines Fix)
-            hist_data = prophet_df[['year', 'y']].copy()
-            hist_data.rename(columns={'y': 'Production'}, inplace=True)
-            hist_data['Type'] = 'Historical'
+        # 4. Predict Future
+        future_pred = model.predict(future_X)
+        future_X['production'] = future_pred
+        future_X['Type'] = 'Forecast'
 
-            # Get Forecast and Bridge
-            future_only = forecast[forecast['year'] > prophet_df['year'].max()].copy()
-            last_hist_row = prophet_df.iloc[[-1]][['year', 'y']].copy()
-            last_hist_row.rename(columns={'y': 'yhat'}, inplace=True)
+        # 5. Prepare Historical Data for Chart
+        hist_data = reg_df[['year', 'production']].copy()
+        hist_data['Type'] = 'Historical'
 
-            # Prepare columns
-            future_only = future_only[['year', 'yhat', 'yhat_lower', 'yhat_upper']]
+        # Combine Data
+        full_data = pd.concat([hist_data, future_X[['year', 'production', 'Type']]])
 
-            # Combine Bridge + Future
-            pred_data = pd.concat([
-                pd.DataFrame({'year': last_hist_row['year'], 'Production': last_hist_row['yhat'], 'Type': 'Forecast'}),
-                pd.DataFrame({'year': future_only['year'], 'Production': future_only['yhat'], 'Type': 'Forecast'})
-            ])
+        # 6. Visualization
 
-            # Fix confidence intervals for bridge
-            pred_data['yhat_lower'] = pred_data['Production']
-            pred_data['yhat_upper'] = pred_data['Production']
+        # Main Line Chart
+        base = alt.Chart(full_data).encode(x=alt.X('year:O', title="Year"))
 
-            # Map intervals for future
-            for idx, row in future_only.iterrows():
-                mask = pred_data['year'] == row['year']
-                pred_data.loc[mask, 'yhat_lower'] = row['yhat_lower']
-                pred_data.loc[mask, 'yhat_upper'] = row['yhat_upper']
+        line = base.mark_line(point=True).encode(
+            y=alt.Y('production:Q', title="Production (MT)"),
+            color=alt.Color('Type',
+                            scale=alt.Scale(domain=['Historical', 'Forecast'], range=['#2E7D32', '#FF9800']),
+                            legend=alt.Legend(title="Data Type")
+                            ),
+            strokeDash=alt.condition(
+                alt.datum.Type == 'Forecast',
+                alt.value([5, 5]),  # Dashed line for forecast
+                alt.value([0])  # Solid line for history
+            ),
+            tooltip=['year', 'production', 'Type']
+        )
 
-            full_chart_data = pd.concat([hist_data, pred_data])
+        chart = (line).properties(
+            title=f"Projected Production Impact for {sim_crop}",
+            height=350
+        )
 
-            # PLOT PROPHET CHART
-            base = alt.Chart(full_chart_data).encode(x=alt.X('year:O', title="Year"))
+        st.altair_chart(chart, use_container_width=True)
 
-            line = base.mark_line(point=True).encode(
-                y=alt.Y('Production:Q', title="Production (MT)"),
-                color=alt.Color('Type',
-                                scale=alt.Scale(domain=['Historical', 'Forecast'], range=['#2E7D32', '#FF9800'])),
-                strokeDash=alt.condition(alt.datum.Type == 'Forecast', alt.value([5, 5]), alt.value([0]))
+        # 7. Impact Explanation Metrics
+        col_m1, col_m2, col_m3 = st.columns(3)
+
+        # Calculate Coefficients (Impact per unit)
+        temp_impact = model.coef_[1]  # Coefficient for Temperature
+        hum_impact = model.coef_[2]  # Coefficient for Humidity
+
+        with col_m1:
+            st.metric("Model Confidence (R²)", f"{r2_score:.2f}")
+        with col_m2:
+            st.metric(
+                "Temp Impact (per °C)",
+                f"{temp_impact:,.0f} MT",
+                delta_color="inverse" if temp_impact < 0 else "normal",
+                help="How much production changes for every 1°C increase."
+            )
+        with col_m3:
+            st.metric(
+                "Humidity Impact (per %)",
+                f"{hum_impact:,.0f} MT",
+                help="How much production changes for every 1% humidity increase."
             )
 
-            # Confidence Band
-            band_data = pred_data[pred_data['year'] > prophet_df['year'].max()]
-            band = alt.Chart(band_data).mark_area(opacity=0.3, color='#FF9800').encode(
-                x='year:O', y='yhat_lower:Q', y2='yhat_upper:Q'
-            )
-
-            chart = (line + band).properties(title=f"Forecast Trend for {sim_crop}", height=350)
-            st.altair_chart(chart, use_container_width=True)
-
-            # -------------------------------------------------------
-            # IMPACT ASSESSMENT (Text Analysis)
-            # -------------------------------------------------------
-            st.markdown("---")
-            st.markdown('<div class="sub-header">AI Impact Assessment</div>', unsafe_allow_html=True)
-
-            # Use the Prophet forecast change % for this
-            last_hist_val = prophet_df.iloc[-1]['y']
-            last_pred_val = future_only.iloc[-1]['yhat']
-            change_pct = ((last_pred_val - last_hist_val) / last_hist_val) * 100
-
-            if change_pct < -20:
-                st.error(f"""
-                ### 🔴 CRITICAL IMPACT DETECTED
-                **Production Reduction:** {abs(change_pct):.1f}%
-                **Recommendation:** Immediate switch to heat-tolerant varieties and advanced irrigation systems required.
-                """)
-            elif change_pct < -10:
-                st.warning(f"""
-                ### 🟠 HIGH IMPACT EXPECTED
-                **Production Reduction:** {abs(change_pct):.1f}%
-                **Recommendation:** Adopt water conservation techniques and modify planting schedules.
-                """)
-            elif change_pct < 0:
-                st.warning(f"""
-                ### 🟡 MODERATE IMPACT EXPECTED
-                **Production Change:** {change_pct:.1f}%
-                **Recommendation:** Monitor temperature thresholds closely.
-                """)
-            else:
-                st.success(f"""
-                ### 🟢 POSITIVE/STABLE OUTLOOK
-                **Production Increase:** {change_pct:.1f}%
-                **Recommendation:** Focus on yield optimization and potential market expansion.
-                """)
+        st.info(f"""
+        **Simulation Summary:**
+        Based on historical trends, if the temperature stays at **{sim_temp:.1f}°C** and humidity at **{sim_hum:.1f}%**, the model predicts production will 
+        **{'increase' if future_pred[-1] > hist_data.iloc[-1]['production'] else 'decrease'}** over the next 5 years.
+        """)
 
     else:
-        st.warning("Insufficient data for Prophet Forecasting (Need >3 years).")
+        st.warning("Not enough data to train the simulation model (need at least 3 years).")
 
     # -------------------------------------------------------
     # REGIONAL THERMAL RISK ASSESSMENT
