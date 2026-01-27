@@ -933,18 +933,18 @@ elif tab_selection == "🔍 Data Exploration":
                 color: white;
                 margin-bottom: 15px;
             ">
-                <h4 style="color: white; margin-top: 0;">📊 State Overview: {sel_state}</h4>
+                <h4 style="color: white; margin-top: 0;">State Overview: {sel_state}</h4>
                 <div style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; justify-content: space-between;">
-                        <span>🌱 Crop Types:</span>
+                        <span>Crop Types:</span>
                         <span style="font-weight: bold;">{num_crops_state}</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
-                        <span>🌡️ Avg Temperature:</span>
+                        <span>Avg Temperature:</span>
                         <span style="font-weight: bold;">{avg_temp_state:.1f}°C</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
-                        <span>💧 Avg Humidity:</span>
+                        <span>Avg Humidity:</span>
                         <span style="font-weight: bold;">{avg_humidity_state:.1f}%</span>
                     </div>
                 </div>
@@ -1297,7 +1297,7 @@ elif tab_selection == "🔍 Data Exploration":
 
     # Data Summary
     st.markdown("---")
-    st.markdown('<div class="sub-header">📋 Data Summary</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Data Summary</div>', unsafe_allow_html=True)
 
     summary_cols = ["production", "temperature", "humidity", "yield_efficiency"]
     available_cols = [col for col in summary_cols if col in explore_filtered.columns]
