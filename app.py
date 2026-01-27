@@ -104,9 +104,11 @@ def load_data() -> pd.DataFrame:
     try:
         # Try multiple possible file locations
         possible_paths = [
+            "/Users/izzulfidaey/Desktop/FYP/crops_state.csv",
             "crops_state.csv",
             "./crops_state.csv",
-            "/workspaces/FYP/crops_state.csv"
+            "../crops_state.csv",
+            "./data/crops_state.csv"
         ]
 
         file_path = None
@@ -622,12 +624,12 @@ if tab_selection == "📊 Summary & Overview":
     # -------------------------
     # Production Map
     # -------------------------
-    st.markdown('<div class="sub-header">🗺️ Production Distribution Map</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Production Distribution Map</div>', unsafe_allow_html=True)
 
     if filtered.empty:
         st.info("No data available for the selected filters.")
     else:
-        # Define STATE_COORDS with all Malaysian states including Pulau Pinang
+        # 1. Define Coordinates
         STATE_COORDS = {
             "Johor": (1.4927, 103.7414),
             "Kedah": (6.1254, 100.3678),
@@ -636,7 +638,7 @@ if tab_selection == "📊 Summary & Overview":
             "Negeri Sembilan": (2.7254, 101.9420),
             "Pahang": (3.8079, 102.5485),
             "Penang": (5.4164, 100.3327),
-            "Pulau Pinang": (5.4164, 100.3327),  # Same as Penang
+            "Pulau Pinang": (5.4164, 100.3327),
             "Perak": (4.5975, 101.0901),
             "Perlis": (6.4425, 100.2083),
             "Sabah": (5.9804, 116.0735),
@@ -653,18 +655,14 @@ if tab_selection == "📊 Summary & Overview":
         }
 
 
-        # Clean state names
         def clean_state_name(state):
             if isinstance(state, str):
                 state = state.strip()
-                if state.lower() in ["pulau pinang", "penang"]:
-                    return "Penang"
-                if state.lower() in ["kuala lumpur", "wp kuala lumpur"]:
-                    return "Kuala Lumpur"
-                if state.lower() in ["labuan", "wp labuan"]:
-                    return "Labuan"
-                if state.lower() in ["putrajaya", "wp putrajaya"]:
-                    return "Putrajaya"
+                lower = state.lower()
+                if "pulau pinang" in lower or "penang" in lower: return "Penang"
+                if "kuala lumpur" in lower: return "Kuala Lumpur"
+                if "labuan" in lower: return "Labuan"
+                if "putrajaya" in lower: return "Putrajaya"
                 return state
             return state
 
@@ -672,17 +670,25 @@ if tab_selection == "📊 Summary & Overview":
         filtered_clean = filtered.copy()
         filtered_clean["state_clean"] = filtered_clean["state"].apply(clean_state_name)
 
-        # State stats
+        # 2. Aggregation: Calculate Production, Area, and Yield
         state_stats = filtered_clean.groupby("state_clean", as_index=False).agg(
-            total_production=("production", "sum")
+            total_production=("production", "sum"),
+            total_planted_area=("planted_area", "sum")
         ).rename(columns={"state_clean": "state"})
 
+        # Calculate Yield (Avoid division by zero)
+        state_stats["avg_yield"] = state_stats["total_production"] / state_stats["total_planted_area"]
+        state_stats = state_stats.replace([np.inf, -np.inf], 0).fillna(0)
+
+        # 3. Identify Top and Bottom Crops
         try:
+            # Top Crop
             highest_crop_idx = filtered_clean.groupby("state_clean")["production"].idxmax()
             highest_crop = filtered_clean.loc[highest_crop_idx].set_index("state_clean")[
                 ["crop_type"]
             ].rename(columns={"crop_type": "highest_crop"})
 
+            # Bottom Crop
             lowest_crop_idx = filtered_clean.groupby("state_clean")["production"].idxmin()
             lowest_crop = filtered_clean.loc[lowest_crop_idx].set_index("state_clean")[
                 ["crop_type"]
@@ -691,234 +697,213 @@ if tab_selection == "📊 Summary & Overview":
             highest_crop = pd.DataFrame()
             lowest_crop = pd.DataFrame()
 
+        # 4. Merge Data
         map_df = state_stats.set_index("state").join(highest_crop, how="left").join(lowest_crop,
                                                                                     how="left").reset_index()
 
         # Add coordinates
         map_df["lat"] = map_df["state"].map(lambda x: STATE_COORDS.get(x, (np.nan, np.nan))[0])
         map_df["lon"] = map_df["state"].map(lambda x: STATE_COORDS.get(x, (np.nan, np.nan))[1])
-
         map_df = map_df.dropna(subset=["lat", "lon"])
 
         if map_df.empty:
-            st.error("No states with valid coordinates found!")
-            st.info("Showing data in table format:")
-            st.dataframe(state_stats, use_container_width=True)
+            st.error("No valid coordinates found for the selected data.")
         else:
-            min_production = map_df["total_production"].min()
-            max_production = map_df["total_production"].max()
+            # 5. Normalization for Bubble Size
+            min_prod = map_df["total_production"].min()
+            max_prod = map_df["total_production"].max()
 
-            if max_production > min_production:
-                map_df["production_norm"] = (map_df["total_production"] - min_production) / (
-                            max_production - min_production)
-                map_df["radius"] = map_df["production_norm"] * 4000 + 1000
+            # If all values are the same, avoid division by zero
+            if max_prod > min_prod:
+                map_df["production_norm"] = (map_df["total_production"] - min_prod) / (max_prod - min_prod)
+                # Dynamic radius: Base 10km + up to 50km based on production
+                map_df["radius"] = map_df["production_norm"] * 50000 + 10000
             else:
-                map_df["radius"] = 3000
+                map_df["radius"] = 20000  # Default size
 
 
+            # Color Logic (Green Intensity)
             def get_green_color(norm_value):
-                green_intensity = int(100 + norm_value * 155)
-                return [0, green_intensity, 0, 200]
+                # Returns a color from dark green to bright green
+                # [R, G, B, Alpha]
+                return [0, int(100 + norm_value * 155), 0, 180]
 
 
             if 'production_norm' in map_df.columns:
                 map_df["color"] = map_df["production_norm"].apply(get_green_color)
             else:
-                map_df["color"] = [[0, 150, 0, 200]] * len(map_df)
+                map_df["color"] = [[0, 150, 0, 180]] * len(map_df)
 
             map_df["highest_crop"] = map_df["highest_crop"].fillna("No data")
             map_df["lowest_crop"] = map_df["lowest_crop"].fillna("No data")
-            
-            # Convert numpy types to Python native types for JSON serialization
-            map_df = map_df.astype({
-                col: float if map_df[col].dtype in ['float64', 'float32'] else int 
-                if map_df[col].dtype in ['int64', 'int32'] else str
-                for col in map_df.select_dtypes(include=['number']).columns
-            })
 
-            # BUBBLE LAYER
+            # 6. PyDeck Layers
+
+            # Bubble Layer
             bubble_layer = pdk.Layer(
                 "ScatterplotLayer",
                 data=map_df,
                 get_position='[lon, lat]',
                 get_radius='radius',
                 radius_scale=1,
-                radius_min_pixels=15,
-                radius_max_pixels=100,
+                radius_min_pixels=10,  # Ensures small bubbles are still visible
+                radius_max_pixels=60,
                 get_fill_color='color',
                 pickable=True,
-                opacity=0.8,
                 stroked=True,
                 filled=True,
-                line_width_min_pixels=2,
-                get_line_color=[0, 100, 0, 255],
+                line_width_min_pixels=1,
+                get_line_color=[0, 80, 0, 200],
                 auto_highlight=True
             )
 
-            # TEXT LAYER
+            # Text Layer (State Names)
             text_layer = pdk.Layer(
                 "TextLayer",
                 data=map_df,
                 get_position='[lon, lat]',
                 get_text='state',
-                get_color=[0, 0, 0, 255],  # Black text
-                get_size=14,
-                get_alignment_baseline="'center'",
-                get_text_anchor="'middle'",
-                get_pixel_offset=[0, 0],
-                pickable=False
+                get_color=[0, 0, 0, 255],
+                get_size=60,
+                get_alignment_baseline="'center'",  # Text sits slightly above/center
+                get_pixel_offset=[0, -15],  # Shift text up slightly
+                font_weight="bold"
             )
 
-            avg_lat = map_df["lat"].mean()
-            avg_lon = map_df["lon"].mean()
-
-            view_state = pdk.ViewState(
-                latitude=avg_lat if not pd.isna(avg_lat) else 4.5,
-                longitude=avg_lon if not pd.isna(avg_lon) else 102.0,
-                zoom=5.5,
-                pitch=0,
-                bearing=0
-            )
-
-            # TOOLTIP with black font
+            # 7. Enhanced Tooltip (HTML)
             tooltip = {
                 "html": """
                 <div style="
-                    padding: 15px; 
-                    background-color: white; 
-                    border-radius: 8px; 
+                    font-family: Arial;
+                    background-color: white;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                    padding: 12px;
                     border: 2px solid #4CAF50;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                    font-family: Arial, sans-serif; 
-                    color: black;
-                    max-width: 250px;
+                    color: #333;
+                    min-width: 220px;
                 ">
                     <div style="
-                        font-size: 20px; 
-                        font-weight: bold; 
-                        margin-bottom: 10px; 
+                        border-bottom: 2px solid #eee;
+                        padding-bottom: 8px;
+                        margin-bottom: 8px;
+                        font-size: 16px;
+                        font-weight: 800;
                         text-align: center;
+                        color: #1a472a;
                     ">
                         {state}
                     </div>
 
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <div style="
-                            display: flex; 
-                            align-items: center; 
-                            gap: 10px;
-                            padding: 8px;
-                            background-color: #F9F9F9;
-                            border-radius: 6px;
-                        ">
-                            <div style="
-                                width: 30px; 
-                                height: 30px; 
-                                background-color: #4CAF50; 
-                                border-radius: 50%; 
-                                display: flex; 
-                                align-items: center; 
-                                justify-content: center;
-                                color: white;
-                                font-weight: bold;
-                            ">
-                                🥇
-                            </div>
-                            <div>
-                                <div style="font-size: 12px; font-weight: bold;">Top Crop</div>
-                                <div style="font-size: 16px; font-weight: bold;">{highest_crop}</div>
-                            </div>
-                        </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Production:</span>
+                        <span style="font-weight: bold;">{total_production} MT</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Planted Area:</span>
+                        <span style="font-weight: bold;">{total_planted_area} Ha</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <span>Avg Yield:</span>
+                        <span style="font-weight: bold; color: #2E7D32;">{avg_yield} T/Ha</span>
+                    </div>
 
-                        <div style="
-                            display: flex; 
-                            align-items: center; 
-                            gap: 10px;
-                            padding: 8px;
-                            background-color: #F9F9F9;
-                            border-radius: 6px;
-                        ">
-                            <div style="
-                                width: 30px; 
-                                height: 30px; 
-                                background-color: #757575; 
-                                border-radius: 50%; 
-                                display: flex; 
-                                align-items: center; 
-                                justify-content: center;
-                                color: white;
-                                font-weight: bold;
-                            ">
-                                📉
-                            </div>
-                            <div>
-                                <div style="font-size: 12px; font-weight: bold;">Lowest Crop</div>
-                                <div style="font-size: 16px; font-weight: bold;">{lowest_crop}</div>
-                            </div>
-                        </div>
+                    <div style="border-top: 1px dashed #ccc; margin: 5px 0 10px 0;"></div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                        <div style="background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold;">HIGHEST CROP</div>
+                        <span style="font-weight: 600;">{highest_crop}</span>
+                    </div>
+                     <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="background: #ffebee; color: #c62828; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold;">LOWEST CROP</div>
+                        <span style="font-weight: 600;">{lowest_crop}</span>
                     </div>
                 </div>
                 """,
-                "style": {"backgroundColor": "transparent", "color": "black"}
+                "style": {
+                    "backgroundColor": "transparent",
+                    "color": "black"
+                }
             }
+
+            # View State
+            view_state = pdk.ViewState(
+                latitude=map_df["lat"].mean(),
+                longitude=map_df["lon"].mean(),
+                zoom=5.5,
+                pitch=0
+            )
 
             deck = pdk.Deck(
                 layers=[bubble_layer, text_layer],
                 initial_view_state=view_state,
                 tooltip=tooltip,
                 map_style="light",
-                height=500
+                height=550
             )
 
             st.pydeck_chart(deck)
 
-            # Optional: Show data table
-            if st.checkbox("Show State Data Table", False):
-                st.dataframe(
-                    map_df[["state", "highest_crop", "lowest_crop"]]
-                    .sort_values("state")
-                    .reset_index(drop=True),
-                    use_container_width=True
-                )
+        # High-Level Production Forecast
+        st.markdown("---")
+        st.markdown('<div class="sub-header">High-Level Production Forecast</div>', unsafe_allow_html=True)
+        st.caption(
+            "This forecast provides a high-level outlook based on historical trends (5-year projection). "
+            "Detailed scenario testing is in the Simulation section."
+        )
 
+        # Simple Linear Trend for Summary
+        summary_forecast_df = filtered.groupby('year')['production'].sum().reset_index()
 
-#High-Level Production Forecast
+        if len(summary_forecast_df) > 2:
+            # Prepare Data
+            X_sum = summary_forecast_df[['year']]
+            y_sum = summary_forecast_df['production']
 
-    st.markdown("---")
-    st.markdown('<div class="sub-header">📈 High-Level Production Forecast (Next 3 Years)</div>', unsafe_allow_html=True)
-    st.caption(
-        "This forecast provides a high-level outlook based on historical trends. Detailed scenario testing is in the Simulation section.")
+            # Fit Regression
+            model_sum = LinearRegression().fit(X_sum, y_sum)
 
-    # Simple Linear Trend for Summary
-    summary_forecast_df = filtered.groupby('year')['production'].sum().reset_index()
-    if len(summary_forecast_df) > 2:
-        X_sum = summary_forecast_df[['year']]
-        y_sum = summary_forecast_df['production']
-        model_sum = LinearRegression().fit(X_sum, y_sum)
+            # Generate 5 Future Years
+            # We use np.arange to cleanly generate [max+1, max+2, max+3, max+4, max+5]
+            future_years_list = np.arange(max_year + 1, max_year + 6).reshape(-1, 1)
+            future_preds = model_sum.predict(future_years_list)
 
-        future_years = np.array([max_year + 1, max_year + 2, max_year + 3]).reshape(-1, 1)
-        future_preds = model_sum.predict(future_years)
+            # Create Forecast DataFrame
+            future_df = pd.DataFrame({
+                'year': future_years_list.flatten().astype(int),
+                'production': future_preds,
+                'Status': 'Predicted'
+            })
 
-        future_df = pd.DataFrame({'year': future_years.flatten(), 'production': future_preds, 'Status': 'Predicted'})
-        summary_forecast_df['Status'] = 'Historical'
+            summary_forecast_df['Status'] = 'Historical'
 
-        full_forecast = pd.concat([summary_forecast_df, future_df])
+            # Combine Data
+            full_forecast = pd.concat([summary_forecast_df, future_df], ignore_index=True)
 
-        forecast_chart = alt.Chart(full_forecast).mark_line(point=True).encode(
-            x='year:O',
-            y=alt.Y('production:Q', title="Total Production (MT)"),
-            color='Status:N',
-            strokeDash=alt.condition(alt.datum.Status == 'Predicted', alt.value([5, 5]), alt.value([0]))
-        ).properties(height=300)
+            # Visualization
+            forecast_chart = alt.Chart(full_forecast).mark_line(point=True).encode(
+                x=alt.X('year:O', title="Year"),
+                y=alt.Y('production:Q', title="Total Production (MT)", scale=alt.Scale(zero=False)),
+                color=alt.Color('Status:N',
+                                scale=alt.Scale(domain=['Historical', 'Predicted'], range=['#2E7D32', '#FFA000'])),
+                strokeDash=alt.condition(
+                    alt.datum.Status == 'Predicted',
+                    alt.value([5, 5]),  # Dashed line for prediction
+                    alt.value([0])  # Solid line for historical
+                ),
+                tooltip=['year', 'production', 'Status']
+            ).properties(height=350)
 
-        st.altair_chart(forecast_chart, use_container_width=True)
+            st.altair_chart(forecast_chart, use_container_width=True)
+        else:
+            st.warning("Not enough historical data points to generate a reliable 5-year trend.")
 # -------------------------
 # TAB 2: DATA EXPLORATION PAGE
 # -------------------------
 elif tab_selection == "🔍 Data Exploration":
 
     # CROP DISTRIBUTION (% BY STATE)
-    # -------------------------------------------------c
+    # -------------------------------------------------
     st.markdown('<div class="sub-header">Crop Distribution Analysis</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 2])
@@ -998,7 +983,7 @@ elif tab_selection == "🔍 Data Exploration":
                     alt.Tooltip("crop_type:N", title="Crop"),
                     alt.Tooltip("percentage:Q", title="Percentage", format=".1f"),
                     alt.Tooltip("production:Q", title="Production", format=",.0f"),
-                    alt.Tooltip("yield_efficiency:Q", title="Avg Yield", format=".2f")
+                    alt.Tooltip("yield_efficiency:Q", title="Avg Yield Efficiency", format=".2f")
                 ]
             )
 
@@ -1102,8 +1087,12 @@ elif tab_selection == "🔍 Data Exploration":
                 height=250
             )
             st.altair_chart(humidity_chart, use_container_width=True)
-
-#Climate Anomalies
+        #----------------------------
+        #Climate Anomalies
+        # ----------------------------
+        # -------------------------
+        # CLIMATE ANOMALIES & HEATMAP
+        # -------------------------
         st.markdown("---")
         st.markdown('<div class="sub-header">Climate Anomalies & Heatmap</div>', unsafe_allow_html=True)
 
@@ -1111,33 +1100,78 @@ elif tab_selection == "🔍 Data Exploration":
 
         with col_a:
             st.markdown("**Temperature Anomaly (vs. Average)**")
+
             # Calculate deviation from mean
             baseline_temp = filtered['temperature'].mean()
             anomaly_df = filtered.groupby('year')['temperature'].mean().reset_index()
             anomaly_df['anomaly'] = anomaly_df['temperature'] - baseline_temp
 
             anomaly_chart = alt.Chart(anomaly_df).mark_bar().encode(
-                x='year:O',
+                x=alt.X('year:O', title="Year"),
                 y=alt.Y('anomaly:Q', title="Deviation from Baseline (°C)"),
-                color=alt.condition(alt.datum.anomaly > 0, alt.value("#e45756"), alt.value("#1c91d4"))
-            ).properties(height=300)
+                color=alt.condition(
+                    alt.datum.anomaly > 0,
+                    alt.value("#e45756"),  # Red for hot
+                    alt.value("#1c91d4")  # Blue for cool
+                ),
+                tooltip=['year', alt.Tooltip('anomaly', format='.2f')]
+            ).properties(height=350)
+
             st.altair_chart(anomaly_chart, use_container_width=True)
+
+            # Explanation
+            st.info("""
+            **How to interpret:**
+            * 🔴 **Red Bars:** Years that were **hotter** than the long-term average.
+            * 🔵 **Blue Bars:** Years that were **cooler** than the average.
+            * *Look for clusters of red bars to identify warming trends.*
+            """)
 
         with col_b:
             st.markdown("**Correlation Matrix**")
+
+            # Calculate Correlation
             corr_matrix = filtered[
-                ['temperature', 'humidity', 'production', 'yield_efficiency']].corr().reset_index().melt(
-                id_vars='index')
+                ['temperature', 'humidity', 'production', 'yield_efficiency']
+            ].corr().reset_index().melt(id_vars='index')
+
             heatmap = alt.Chart(corr_matrix).mark_rect().encode(
-                x='index:N',
-                y='variable:N',
-                color=alt.Color('value:Q', scale=alt.Scale(scheme='redblue', domain=[-1, 1])),
-                tooltip=['value']
+                x=alt.X('index:N', title=None),
+                y=alt.Y('variable:N', title=None),
+                color=alt.Color(
+                    'value:Q',
+                    scale=alt.Scale(scheme='redblue', domain=[-1, 1]),
+                    legend=alt.Legend(title="Correlation")
+                ),
+                tooltip=[
+                    alt.Tooltip('index', title='Variable 1'),
+                    alt.Tooltip('variable', title='Variable 2'),
+                    alt.Tooltip('value', title='Correlation', format='.2f')
+                ]
             ).properties(height=350)
-            st.altair_chart(heatmap, use_container_width=True)
+
+            # Add text labels on the heatmap for clarity
+            text = heatmap.mark_text(baseline='middle').encode(
+                text=alt.Text('value:Q', format='.2f'),
+                color=alt.condition(
+                    alt.datum.value > 0.5,
+                    alt.value('white'),
+                    alt.value('black')
+                )
+            )
+
+            st.altair_chart(heatmap + text, use_container_width=True)
+
+            # Explanation
+            st.info("""
+            **How to interpret:**
+            * 🟥 **Dark Red (+1.0):** Strong Positive Correlation (Variables move **together**).
+            * 🟦 **Dark Blue (-1.0):** Strong Negative Correlation (Variables move in **opposite** directions).
+            * ⬜ **White (0.0):** No relationship.
+            """)
 
         # -------------------------
-        # CORRECTED: SCATTER PLOTS (USE YIELD, NOT PRODUCTION)
+        # SCATTER PLOTS
         # -------------------------
         st.markdown("---")
         st.markdown('<div class="sub-header">Climate Impact on Yield</div>', unsafe_allow_html=True)
@@ -1166,6 +1200,13 @@ elif tab_selection == "🔍 Data Exploration":
                 corr = scatter_data["temperature"].corr(scatter_data["yield_efficiency"])
                 st.metric("Temp-Yield Correlation", f"{corr:.3f}", delta_color="off")
 
+                # Simple Explanation in Info Box
+                st.info("""
+                **How to interpret:**
+                * 📉 **Negative Correlation:** As it gets hotter, yield **decreases** (Red line goes down).
+                * 📈 **Positive Correlation:** As it gets hotter, yield **increases**.
+                """)
+
         with col2:
             # Humidity vs YIELD
             scatter_data_h = explore_filtered.dropna(subset=["humidity", "yield_efficiency"])
@@ -1188,11 +1229,18 @@ elif tab_selection == "🔍 Data Exploration":
                 corr_h = scatter_data_h["humidity"].corr(scatter_data_h["yield_efficiency"])
                 st.metric("Humidity-Yield Correlation", f"{corr_h:.3f}", delta_color="off")
 
+                # Simple Explanation in Info Box
+                st.info("""
+                **How to interpret:**
+                * 📈 **Positive Correlation:** Higher humidity **boosts** yield (Blue line goes up).
+                * 📉 **Negative Correlation:** Higher humidity **reduces** yield.
+                """)
+
         # -------------------------
-        # NEW: HEAT SENSITIVITY ANALYSIS (FIXED)
+        #HEAT SENSITIVITY ANALYSIS
         # -------------------------
         st.markdown("---")
-        st.markdown('<div class="sub-header">🔥 Heat Sensitivity Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Heat Sensitivity Analysis</div>', unsafe_allow_html=True)
         st.caption(
             "This chart shows how much **Yield (MT/Ha)** changes for every **+1°C rise** in temperature. Negative bars indicate crops at risk.")
 
@@ -1242,7 +1290,7 @@ elif tab_selection == "🔍 Data Exploration":
 
             # Add Interpretation
             st.info(
-                "💡 **Interpretation:** Bars pointing **DOWN (Red)** mean the crop produces *less* food when it gets hotter. Bars pointing **UP (Green)** mean it tolerates heat well.")
+                "💡 **Interpretation:** Bars pointing **DOWN (Red)** mean the crop produces *less* when it gets hotter. Bars pointing **UP (Green)** mean it tolerates heat well.")
         else:
             st.warning(
                 "Insufficient clean data to calculate heat sensitivity. Some crops may have 0 planted area or missing values.")
@@ -1475,7 +1523,7 @@ else:
             # IMPACT ASSESSMENT (Text Analysis)
             # -------------------------------------------------------
             st.markdown("---")
-            st.markdown('<div class="sub-header">📝 AI Impact Assessment</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sub-header">AI Impact Assessment</div>', unsafe_allow_html=True)
 
             # Use the Prophet forecast change % for this
             last_hist_val = prophet_df.iloc[-1]['y']
@@ -1514,7 +1562,7 @@ else:
     # REGIONAL THERMAL RISK ASSESSMENT
     # -------------------------------------------------------
     st.markdown("---")
-    st.markdown('<div class="sub-header">🌡️ Regional Thermal Risk Assessment</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Regional Thermal Risk Assessment</div>', unsafe_allow_html=True)
     st.caption(
         "This analysis evaluates which states are most vulnerable to heat stress based on historical temperature stability.")
 
