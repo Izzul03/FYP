@@ -813,7 +813,7 @@ if tab_selection == "📊 Summary & Overview":
                     </div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
                         <span>Avg Yield:</span>
-                        <span style="font-weight: bold; color: #2E7D32;">{avg_yield} T/Ha</span>
+                        <span style="font-weight: bold; color: #2E7D32;">{avg_yield} MT/Ha</span>
                     </div>
 
                     <div style="border-top: 1px dashed #ccc; margin: 5px 0 10px 0;"></div>
