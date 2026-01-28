@@ -363,12 +363,12 @@ if tab_selection == "📊 Summary & Overview":
     # Display data info
     st.sidebar.info(f"Showing {len(filtered)} records")
 
-    # --- [NEW] 2. UPDATED KPI CARDS ---
+    # --- 2. UPDATED KPI CARDS ---
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1:
         st.metric("Total Production", f"{filtered['production'].sum():,.0f} MT", f"{prod_delta:+.1f}% (Year-over-Year)")
     with kpi2:
-        st.metric("Avg Yield Efficiency", f"{filtered['yield_efficiency'].mean():.2f} T/Ha",
+        st.metric("Avg Yield Efficiency", f"{filtered['yield_efficiency'].mean():.2f} MT/Ha",
                   f"{yield_delta:+.1f}% (Year-over-Year)")
     with kpi3:
         st.metric("Avg Temperature", f"{filtered['temperature'].mean():.1f}°C", f"{temp_delta:+.1f}°C",
@@ -383,16 +383,24 @@ if tab_selection == "📊 Summary & Overview":
         st.metric("Avg Humidity", f"{avg_humidity:.1f}%")
 
     with col6:
-        avg_yield = filtered["yield_efficiency"].mean(skipna=True)
-        st.metric("Avg Yield", f"{avg_yield:.2f} MT/Ha")
-
-    with col7:
         num_states = filtered["state"].nunique()
         st.metric("States Covered", f"{num_states}")
 
-    with col8:
+    with col7:
         num_crops = filtered["crop_type"].nunique()
         st.metric("Crop Types", f"{num_crops}")
+    # --- YIELD EFFICIENCY FORMULA ---
+    st.markdown("### Yield Efficiency Calculation")
+
+    st.latex(
+        r"\text{Average Yield Efficiency (MT/Ha)} = "
+        r"\frac{\text{Total Production (MT)}}{\text{Total Planted Area (Ha)}}"
+    )
+
+    st.caption(
+        "This metric represents the amount of crop output produced per hectare. "
+        "It should be interpreted together with planted area, as very small areas can produce unusually high values."
+    )
 
     # National Trends Row
     st.markdown("---")
@@ -1290,7 +1298,7 @@ elif tab_selection == "🔍 Data Exploration":
 
             # Add Interpretation
             st.info(
-                "💡 **Interpretation:** Bars pointing **DOWN (Red)** mean the crop produces *less* when it gets hotter. Bars pointing **UP (Green)** mean it tolerates heat well.")
+                " **How to interpret::** Bars pointing **DOWN (Red)** mean the crop produces *less* when it gets hotter. Bars pointing **UP (Green)** mean it tolerates heat well.")
         else:
             st.warning(
                 "Insufficient clean data to calculate heat sensitivity. Some crops may have 0 planted area or missing values.")
