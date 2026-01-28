@@ -1303,17 +1303,6 @@ elif tab_selection == "🔍 Data Exploration":
             st.warning(
                 "Insufficient clean data to calculate heat sensitivity. Some crops may have 0 planted area or missing values.")
 
-    # Data Summary
-    st.markdown("---")
-    st.markdown('<div class="sub-header">Data Summary</div>', unsafe_allow_html=True)
-
-    summary_cols = ["production", "temperature", "humidity", "yield_efficiency"]
-    available_cols = [col for col in summary_cols if col in explore_filtered.columns]
-
-    if available_cols:
-        summary_stats = explore_filtered[available_cols].describe().round(2)
-        st.dataframe(summary_stats, use_container_width=True)
-
 # -------------------------
 # TAB 3: CLIMATE SIMULATION PAGE
 # -------------------------
