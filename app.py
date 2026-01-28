@@ -1512,15 +1512,13 @@ else:
         hum_impact = model.coef_[2]  # Coefficient for Humidity
 
         with col_m1:
-            st.metric("Model Confidence (R²)", f"{r2_score:.2f}")
-        with col_m2:
             st.metric(
                 "Temp Impact (per °C)",
                 f"{temp_impact:,.0f} MT",
                 delta_color="inverse" if temp_impact < 0 else "normal",
                 help="How much production changes for every 1°C increase."
             )
-        with col_m3:
+        with col_m2:
             st.metric(
                 "Humidity Impact (per %)",
                 f"{hum_impact:,.0f} MT",
