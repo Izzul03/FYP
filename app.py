@@ -640,59 +640,6 @@ if tab_selection == "📊 Summary & Overview":
 
             st.pydeck_chart(deck)
 
-        # High-Level Production Forecast
-        st.markdown("---")
-        st.markdown('<div class="sub-header">High-Level Production Forecast</div>', unsafe_allow_html=True)
-        st.caption(
-            "This forecast provides a high-level outlook based on historical trends (5-year projection). "
-            "Detailed scenario testing is in the Simulation section."
-        )
-
-        # Simple Linear Trend for Summary
-        summary_forecast_df = filtered.groupby('year')['production'].sum().reset_index()
-
-        if len(summary_forecast_df) > 2:
-            # Prepare Data
-            X_sum = summary_forecast_df[['year']]
-            y_sum = summary_forecast_df['production']
-
-            # Fit Regression
-            model_sum = LinearRegression().fit(X_sum, y_sum)
-
-            # Generate 5 Future Years
-            # We use np.arange to cleanly generate [max+1, max+2, max+3, max+4, max+5]
-            future_years_list = np.arange(max_year + 1, max_year + 6).reshape(-1, 1)
-            future_preds = model_sum.predict(future_years_list)
-
-            # Create Forecast DataFrame
-            future_df = pd.DataFrame({
-                'year': future_years_list.flatten().astype(int),
-                'production': future_preds,
-                'Status': 'Predicted'
-            })
-
-            summary_forecast_df['Status'] = 'Historical'
-
-            # Combine Data
-            full_forecast = pd.concat([summary_forecast_df, future_df], ignore_index=True)
-
-            # Visualization
-            forecast_chart = alt.Chart(full_forecast).mark_line(point=True).encode(
-                x=alt.X('year:O', title="Year"),
-                y=alt.Y('production:Q', title="Total Production (MT)", scale=alt.Scale(zero=False)),
-                color=alt.Color('Status:N',
-                                scale=alt.Scale(domain=['Historical', 'Predicted'], range=['#2E7D32', '#FFA000'])),
-                strokeDash=alt.condition(
-                    alt.datum.Status == 'Predicted',
-                    alt.value([5, 5]),  # Dashed line for prediction
-                    alt.value([0])  # Solid line for historical
-                ),
-                tooltip=['year', 'production', 'Status']
-            ).properties(height=350)
-
-            st.altair_chart(forecast_chart, use_container_width=True)
-        else:
-            st.warning("Not enough historical data points to generate a reliable 5-year trend.")
 # -------------------------
 # TAB 2: Trend Analysis PAGE
 # -------------------------
