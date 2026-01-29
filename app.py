@@ -266,7 +266,7 @@ st.sidebar.header(" Dashboard Controls")
 # Multi-tab selector
 tab_selection = st.sidebar.radio(
     "Select Dashboard View:",
-    ["📊 Summary & Overview", "🔍 Data Exploration", "🎯 Climate Simulation"]
+    ["📊 Summary & Overview", "🔍 Trend Analysis", "🎯 Climate Simulation"]
 )
 
 # Common filters
@@ -389,218 +389,6 @@ if tab_selection == "📊 Summary & Overview":
     with col7:
         num_crops = filtered["crop_type"].nunique()
         st.metric("Crop Types", f"{num_crops}")
-    # --- YIELD EFFICIENCY FORMULA ---
-    st.markdown("### Yield Efficiency Calculation")
-
-    st.latex(
-        r"\text{Average Yield Efficiency (MT/Ha)} = "
-        r"\frac{\text{Total Production (MT)}}{\text{Total Planted Area (Ha)}}"
-    )
-
-    st.caption(
-        "This metric represents the amount of crop output produced per hectare. "
-        "It should be interpreted together with planted area, as very small areas can produce unusually high values."
-    )
-
-    # National Trends Row
-    st.markdown("---")
-    st.markdown('<div class="sub-header">National Trends Analysis</div>', unsafe_allow_html=True)
-
-    # Prepare national data (exclude Malaysia aggregate if present)
-    national_data = filtered[~filtered["state"].str.contains("Malaysia", case=False, na=False)]
-
-    if not national_data.empty:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Production trend over time
-            prod_trend = national_data.groupby("year").agg({
-                "production": "sum",
-                "temperature": "mean"
-            }).reset_index()
-
-            # Create dual axis chart
-            base = alt.Chart(prod_trend).encode(
-                x=alt.X("year:O", title="Year")
-            )
-
-            production_line = base.mark_line(color="#2E7D32", strokeWidth=3).encode(
-                y=alt.Y("production:Q", title="Production (MT)", scale=alt.Scale(zero=False)),
-                tooltip=["year", "production"]
-            ).properties(
-                title="Annual Production Trend"
-            )
-
-            st.altair_chart(production_line, use_container_width=True)
-
-            # Temperature trend
-            temp_line = base.mark_line(color="#FF6B6B", strokeWidth=2, strokeDash=[5, 5]).encode(
-                y=alt.Y("temperature:Q", title="Temperature (°C)", scale=alt.Scale(zero=False)),
-                tooltip=["year", "temperature"]
-            ).properties(
-                title="Average Temperature Trend"
-            )
-
-            st.altair_chart(temp_line, use_container_width=True)
-
-        with col2:
-            # Crop composition
-            crop_composition = national_data.groupby("crop_type").agg({
-                "production": "sum",
-                "planted_area": "sum"
-            }).reset_index()
-
-            crop_composition["yield"] = crop_composition["production"] / crop_composition["planted_area"]
-            crop_composition = crop_composition.sort_values("production", ascending=False)
-
-            # Production by crop
-            bars = alt.Chart(crop_composition).mark_bar().encode(
-                x=alt.X("production:Q", title="Production (MT)"),
-                y=alt.Y("crop_type:N", sort="-x", title="Crop Type"),
-                color=alt.Color("crop_type:N", legend=None),
-                tooltip=["crop_type", "production", "yield"]
-            ).properties(
-                title="Production by Crop Type",
-                height=350
-            )
-
-            st.altair_chart(bars, use_container_width=True)
-
-            # Yield by crop
-            yield_chart = alt.Chart(crop_composition).mark_bar(color="#FF9800").encode(
-                x=alt.X("crop_type:N", title="Crop Type", sort="-y"),
-                y=alt.Y("yield:Q", title="Yield (MT/Ha)"),
-                tooltip=["crop_type", "yield"]
-            ).properties(
-                title="Yield Efficiency by Crop",
-                height=350
-            )
-
-            st.altair_chart(yield_chart, use_container_width=True)
-
-    # Replace the entire Heat Sensitivity Analysis section with this corrected version:
-
-    # Heat Sensitivity Analysis
-    st.markdown("---")
-    st.markdown('<div class="sub-header">Heat Sensitivity Analysis</div>', unsafe_allow_html=True)
-
-    # Calculate heat sensitivity
-    sensitivity_data = filtered.dropna(subset=["temperature", "production", "planted_area"])
-
-    if len(sensitivity_data) > 1:
-        sensitivity_results = []
-
-        for crop in sensitivity_data["crop_type"].unique():
-            crop_data = sensitivity_data[sensitivity_data["crop_type"] == crop]
-
-            if len(crop_data) > 2:
-                # Group by year
-                yearly_agg = crop_data.groupby("year").agg({
-                    "temperature": "mean",
-                    "production": "sum",
-                    "planted_area": "sum"
-                }).reset_index()
-
-                yearly_agg = yearly_agg.sort_values("year")
-                yearly_agg["yield"] = yearly_agg["production"] / yearly_agg["planted_area"]
-
-                if len(yearly_agg) > 1:
-                    # Calculate correlations
-                    temp_yield_corr = yearly_agg["temperature"].corr(yearly_agg["yield"])
-
-                    # Classify sensitivity
-                    if temp_yield_corr < -0.5:
-                        risk_level = "🔴 High Risk"
-                        risk_color = "red"
-                    elif temp_yield_corr < -0.2:
-                        risk_level = "🟡 Medium Risk"
-                        risk_color = "orange"
-                    else:
-                        risk_level = "🟢 Low Risk"
-                        risk_color = "green"
-
-                    sensitivity_results.append({
-                        "Crop": crop,
-                        "Temperature-Yield Correlation": temp_yield_corr,
-                        "Risk Level": risk_level,
-                        "Risk Color": risk_color,
-                        "Avg Temp (°C)": round(yearly_agg['temperature'].mean(), 1),
-                        "Avg Yield (MT/Ha)": round(yearly_agg['yield'].mean(), 2)
-                    })
-
-        if sensitivity_results:
-            # Create a DataFrame
-            sensitivity_df = pd.DataFrame(sensitivity_results)
-
-            # Sort by correlation (most negative first)
-            sensitivity_df = sensitivity_df.sort_values("Temperature-Yield Correlation")
-
-            # Display as a styled dataframe
-            st.dataframe(
-                sensitivity_df[["Crop", "Temperature-Yield Correlation", "Risk Level", "Avg Temp (°C)",
-                                "Avg Yield (MT/Ha)"]].style.format({
-                    "Temperature-Yield Correlation": "{:.3f}",
-                    "Avg Temp (°C)": "{:.1f}",
-                    "Avg Yield (MT/Ha)": "{:.2f}"
-                }).apply(
-                    lambda x: [f'color: {row["Risk Color"]}' for _, row in sensitivity_df.iterrows()]
-                    if x.name == "Risk Level" else [''] * len(x),
-                    axis=0
-                ),
-                use_container_width=True
-            )
-
-            # Alternative: Create a bar chart for visualization
-            st.markdown("#### Visual Correlation Analysis")
-
-            # Create bar chart showing correlations
-            corr_chart = alt.Chart(sensitivity_df).mark_bar().encode(
-                x=alt.X("Crop:N", sort="-y", title="Crop Type"),
-                y=alt.Y("Temperature-Yield Correlation:Q", title="Correlation Coefficient"),
-                color=alt.Color("Risk Level:N",
-                                scale=alt.Scale(
-                                    domain=["🔴 High Risk", "🟡 Medium Risk", "🟢 Low Risk"],
-                                    range=["#ff4444", "#ffaa44", "#44aa44"]
-                                )),
-                tooltip=["Crop", "Temperature-Yield Correlation", "Risk Level", "Avg Temp (°C)", "Avg Yield (MT/Ha)"]
-            ).properties(
-                title="Temperature-Yield Correlation by Crop",
-                height=400
-            )
-
-            # Add a zero line for reference
-            zero_line = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', strokeDash=[5, 5]).encode(y='y:Q')
-
-            st.altair_chart(corr_chart + zero_line, use_container_width=True)
-
-            st.markdown("""
-            <div class="highlight-box" style="background-color: #1a472a; padding: 15px; border-radius: 10px; border-left: 5px solid #2e8b57; color: white;">
-            <h4 style="color: white; margin-top: 0;">📝 How to interpret these results:</h4>
-
-            <div style="display: flex; align-items: center; margin: 10px 0;">
-                <span style="color: #90ee90; font-size: 20px; margin-right: 10px;">🟢</span>
-                <span style="color: white;"><b>Low Risk (Correlation > -0.2):</b> Temperature has minimal impact on yield</span>
-            </div>
-
-            <div style="display: flex; align-items: center; margin: 10px 0;">
-                <span style="color: #ffd700; font-size: 20px; margin-right: 10px;">🟡</span>
-                <span style="color: white;"><b>Medium Risk (-0.5 to -0.2):</b> Moderate temperature sensitivity</span>
-            </div>
-
-            <div style="display: flex; align-items: center; margin: 10px 0;">
-                <span style="color: #ff6b6b; font-size: 20px; margin-right: 10px;">🔴</span>
-                <span style="color: white;"><b>High Risk (Correlation < -0.5):</b> Strong negative impact of temperature on yield</span>
-            </div>
-
-            <p style="margin-top: 15px; color: #e0e0e0;">
-            <b>Key Insight:</b> Negative correlation means higher temperatures are associated with lower yields. 
-            Positive correlation means higher temperatures are associated with higher yields.
-            </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Detailed insights for high-risk crops
-            high_risk_crops = sensitivity_df[sensitivity_df["Risk Level"] == "🔴 High Risk"]
 
     # Top Performing States
     st.markdown("---")
@@ -906,9 +694,9 @@ if tab_selection == "📊 Summary & Overview":
         else:
             st.warning("Not enough historical data points to generate a reliable 5-year trend.")
 # -------------------------
-# TAB 2: DATA EXPLORATION PAGE
+# TAB 2: Trend Analysis PAGE
 # -------------------------
-elif tab_selection == "🔍 Data Exploration":
+elif tab_selection == "🔍 Trend Analysis":
 
     # CROP DISTRIBUTION (% BY STATE)
     # -------------------------------------------------
@@ -1302,6 +1090,76 @@ elif tab_selection == "🔍 Data Exploration":
         else:
             st.warning(
                 "Insufficient clean data to calculate heat sensitivity. Some crops may have 0 planted area or missing values.")
+    # Heat Sensitivity Analysis
+    st.markdown("---")
+    st.markdown('<div class="sub-header">Heat Sensitivity Analysis</div>', unsafe_allow_html=True)
+
+    # Calculate heat sensitivity
+    sensitivity_data = filtered.dropna(subset=["temperature", "production", "planted_area"])
+
+    if len(sensitivity_data) > 1:
+        sensitivity_results = []
+
+        for crop in sensitivity_data["crop_type"].unique():
+            crop_data = sensitivity_data[sensitivity_data["crop_type"] == crop]
+
+            if len(crop_data) > 2:
+                # Group by year
+                yearly_agg = crop_data.groupby("year").agg({
+                    "temperature": "mean",
+                    "production": "sum",
+                    "planted_area": "sum"
+                }).reset_index()
+
+                yearly_agg = yearly_agg.sort_values("year")
+                yearly_agg["yield"] = yearly_agg["production"] / yearly_agg["planted_area"]
+
+                if len(yearly_agg) > 1:
+                    # Calculate correlations
+                    temp_yield_corr = yearly_agg["temperature"].corr(yearly_agg["yield"])
+
+                    # Classify sensitivity
+                    if temp_yield_corr < -0.5:
+                        risk_level = "🔴 High Risk"
+                        risk_color = "red"
+                    elif temp_yield_corr < -0.2:
+                        risk_level = "🟡 Medium Risk"
+                        risk_color = "orange"
+                    else:
+                        risk_level = "🟢 Low Risk"
+                        risk_color = "green"
+
+                    sensitivity_results.append({
+                        "Crop": crop,
+                        "Temperature-Yield Correlation": temp_yield_corr,
+                        "Risk Level": risk_level,
+                        "Risk Color": risk_color,
+                        "Avg Temp (°C)": round(yearly_agg['temperature'].mean(), 1),
+                        "Avg Yield (MT/Ha)": round(yearly_agg['yield'].mean(), 2)
+                    })
+
+        if sensitivity_results:
+            # Create a DataFrame
+            sensitivity_df = pd.DataFrame(sensitivity_results)
+
+            # Sort by correlation (most negative first)
+            sensitivity_df = sensitivity_df.sort_values("Temperature-Yield Correlation")
+
+            # Display as a styled dataframe
+            st.dataframe(
+                sensitivity_df[["Crop", "Temperature-Yield Correlation", "Risk Level", "Avg Temp (°C)",
+                                "Avg Yield (MT/Ha)"]].style.format({
+                    "Temperature-Yield Correlation": "{:.3f}",
+                    "Avg Temp (°C)": "{:.1f}",
+                    "Avg Yield (MT/Ha)": "{:.2f}"
+                }).apply(
+                    lambda x: [f'color: {row["Risk Color"]}' for _, row in sensitivity_df.iterrows()]
+                    if x.name == "Risk Level" else [''] * len(x),
+                    axis=0
+                ),
+                use_container_width=True
+            )
+
 
 # -------------------------
 # TAB 3: CLIMATE SIMULATION PAGE
