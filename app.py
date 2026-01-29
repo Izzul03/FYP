@@ -1173,8 +1173,8 @@ elif tab_selection == "🔍 Data Exploration":
             # Explanation
             st.info("""
             **How to interpret:**
-            * 🟥 **Dark Red (+1.0):** Strong Positive Correlation (Variables move **together**).
-            * 🟦 **Dark Blue (-1.0):** Strong Negative Correlation (Variables move in **opposite** directions).
+            * 🟦 **Dark Blue (+1.0):** Strong Positive Correlation (Variables move **together**).
+            * 🟥 **Dark Red (-1.0):** Strong Negative Correlation (Variables move in **opposite** directions).
             * ⬜ **White (0.0):** No relationship.
             """)
 
