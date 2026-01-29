@@ -26,6 +26,30 @@ st.set_page_config(
 # Custom CSS for better styling
 st.markdown("""
 <style>
+/* Make KPI label smaller */
+[data-testid="stMetricLabel"] {
+    font-size: 0.8rem;
+}
+
+/* Make KPI value smaller */
+[data-testid="stMetricValue"] {
+    font-size: 1.4rem;
+}
+
+/* Make KPI delta text smaller */
+[data-testid="stMetricDelta"] {
+    font-size: 0.75rem;
+}
+
+/* Reduce spacing inside KPI cards */
+[data-testid="metric-container"] {
+    padding: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
     .main-header {
         font-size: 2.5rem;
         font-weight: 700;
@@ -391,7 +415,6 @@ if tab_selection == "📊 Summary & Overview":
         st.metric("Crop Types", f"{num_crops}")
 
     # Top Performing States
-    st.markdown("---")
     st.markdown('<div class="sub-header">Top Performing States</div>', unsafe_allow_html=True)
 
     if not filtered.empty:
@@ -401,21 +424,43 @@ if tab_selection == "📊 Summary & Overview":
             "temperature": "mean"
         }).reset_index()
 
-        col1, col2 = st.columns(2)
+        # --- Top 5 by Production ---
+        st.markdown("**Top 5 States by Production**")
+        top_production = state_performance.nlargest(5, "production")
 
-        with col1:
-            # Top 5 by production
-            top_production = state_performance.nlargest(5, "production")
-            st.markdown("**Top 5 States by Production:**")
-            for idx, row in top_production.iterrows():
-                st.write(f"{idx + 1}. **{row['state']}**: {row['production']:,.0f} MT")
+        prod_cols = st.columns(5)
+        for col, (_, row) in zip(prod_cols, top_production.iterrows()):
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="small-card">
+                        <div class="state">{row['state']}</div>
+                        <div class="value">{row['production']:,.0f} MT</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-        with col2:
-            # Top 5 by yield
-            top_yield = state_performance.nlargest(5, "yield_efficiency")
-            st.markdown("**Top 5 States by Yield Efficiency:**")
-            for idx, row in top_yield.iterrows():
-                st.write(f"{idx + 1}. **{row['state']}**: {row['yield_efficiency']:.2f} MT/Ha")
+        # ---- SPACER (no line) ----
+        st.markdown('<div style="margin-top:20px;"></div>', unsafe_allow_html=True)
+
+        # --- Top 5 by Yield Efficiency ---
+        st.markdown("**Top 5 States by Yield Efficiency**")
+
+        top_yield = state_performance.nlargest(5, "yield_efficiency")
+
+        yield_cols = st.columns(5)
+        for col, (_, row) in zip(yield_cols, top_yield.iterrows()):
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="small-card">
+                        <div class="state">{row['state']}</div>
+                        <div class="value">{row['yield_efficiency']:.2f} MT/Ha</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
     # -------------------------
     # Production Map
@@ -1037,9 +1082,6 @@ elif tab_selection == "🔍 Trend Analysis":
         else:
             st.warning(
                 "Insufficient clean data to calculate heat sensitivity. Some crops may have 0 planted area or missing values.")
-    # Heat Sensitivity Analysis
-    st.markdown("---")
-    st.markdown('<div class="sub-header">Heat Sensitivity Analysis</div>', unsafe_allow_html=True)
 
     # Calculate heat sensitivity
     sensitivity_data = filtered.dropna(subset=["temperature", "production", "planted_area"])
